@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Settings, X, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -9,9 +9,6 @@ import { Slider } from '@/components/ui/slider'
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
@@ -51,12 +48,18 @@ export function MatchingSettings({
   const [isOpen, setIsOpen] = useState(false)
   const [localThreshold, setLocalThreshold] = useState(globalThreshold)
 
+  // Sync localThreshold when globalThreshold prop changes (e.g., switching inboxes)
+  useEffect(() => {
+    setLocalThreshold(globalThreshold)
+  }, [globalThreshold])
+
   const handleThresholdChange = (value: number[]) => {
     setLocalThreshold(value[0])
   }
 
   const handleApplyThreshold = () => {
     onThresholdChange(localThreshold)
+    setIsOpen(false) // Close sheet after applying
   }
 
   const getThresholdColor = (threshold: number) => {
@@ -78,15 +81,27 @@ export function MatchingSettings({
           <Settings className="h-4 w-4" />
         </Button>
       </SheetTrigger>
-      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>Matching Settings</SheetTitle>
-          <SheetDescription>
-            Experiment with matching thresholds and debug options
-          </SheetDescription>
-        </SheetHeader>
+      <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto p-0 [&>button]:hidden">
+        {/* Header with border to match contract detail modal */}
+        <div className="border-b border-border p-4 flex items-center justify-between gap-4 flex-shrink-0">
+          <div>
+            <h2 className="text-lg font-semibold">Matching Settings</h2>
+            <p className="text-sm text-muted-foreground">
+              Experiment with matching thresholds and debug options
+            </p>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 flex-shrink-0"
+            onClick={() => setIsOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
 
-        <div className="space-y-6 mt-6">
+        {/* Content with consistent padding */}
+        <div className="p-6 space-y-6">
           {/* Threshold Slider */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">

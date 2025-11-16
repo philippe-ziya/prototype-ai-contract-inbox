@@ -64,6 +64,7 @@ export default function ContractInboxPage() {
     setActiveInboxId,
     addInbox,
     removeInbox,
+    refreshInboxes,
   } = useInboxStorage()
 
   // Semantic search for active inbox
@@ -72,6 +73,16 @@ export default function ContractInboxPage() {
     searching,
     search,
   } = useSemanticSearch(activeInbox?.prompt || null, activeInbox, !!activeInbox)
+
+  // Sync globalThreshold with active inbox's threshold when switching inboxes
+  useEffect(() => {
+    if (activeInbox?.learningMetrics?.dynamicMinScore !== undefined) {
+      setGlobalThreshold(activeInbox.learningMetrics.dynamicMinScore)
+    } else if (activeInbox && !activeInbox.isAllContractsInbox) {
+      // If inbox exists but has no threshold set, use default
+      setGlobalThreshold(30)
+    }
+  }, [activeInbox])
 
   // Determine which contracts to display
   // - If "All Contracts" special inbox: show all 623 contracts with 100% match (bypass search)
@@ -377,6 +388,9 @@ export default function ContractInboxPage() {
             lastUpdated: new Date().toISOString(),
           },
         })
+
+        // Refresh inboxes to get updated threshold before search
+        await refreshInboxes()
 
         // Re-trigger search with new threshold
         search(activeInbox.prompt)
