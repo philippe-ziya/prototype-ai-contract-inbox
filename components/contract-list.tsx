@@ -1,15 +1,32 @@
-import { useState } from "react"
-import { Menu, Star, EyeOff } from 'lucide-react'
+import { useState, useRef } from "react"
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { Menu, Star, EyeOff, MoreHorizontal, RefreshCw, Trash2, SearchX } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+} from "@/components/ui/empty"
 import { HideContractDialog } from "@/components/hide-contract-dialog"
+import { MatchingSettings } from "@/components/matching-settings"
 import { cn } from "@/lib/utils"
 import type { Contract } from "@/app/page"
 
 interface ContractListProps {
   contracts: Contract[]
   selectedInboxId: string
+  inboxName?: string
   isColumn1Collapsed: boolean
   onExpandColumn1: () => void
   activeFilter: "all" | "unread" | "saved" | "hidden"
@@ -19,11 +36,35 @@ interface ContractListProps {
   onSaveContract: (contractId: string) => void
   onHideContract: (contractId: string, feedback?: string[]) => void
   onRestoreContract: (contractId: string) => void
+  onRerunInbox?: () => void
+  onDeleteInbox?: () => void
+  onWidenSearch?: () => void
+  currentThreshold?: number
+  isAllContractsInbox?: boolean
+  globalThreshold: number
+  onGlobalThresholdChange: (threshold: number) => void
+  debugMode: {
+    showRawScores: boolean
+    showExplanations: boolean
+    showFilterReasons: boolean
+  }
+  onDebugModeChange: (mode: {
+    showRawScores: boolean
+    showExplanations: boolean
+    showFilterReasons: boolean
+  }) => void
+  learningEnabled: boolean
+  onLearningEnabledChange: (enabled: boolean) => void
+  resultStats?: {
+    totalContracts: number
+    matchingAtThreshold: number
+  }
 }
 
 export function ContractList({
   contracts,
   selectedInboxId,
+  inboxName = "All Contracts",
   isColumn1Collapsed,
   onExpandColumn1,
   activeFilter,
@@ -33,22 +74,45 @@ export function ContractList({
   onSaveContract,
   onHideContract,
   onRestoreContract,
+  onRerunInbox,
+  onDeleteInbox,
+  onWidenSearch,
+  currentThreshold = 50,
+  isAllContractsInbox = false,
+  globalThreshold,
+  onGlobalThresholdChange,
+  debugMode,
+  onDebugModeChange,
+  learningEnabled,
+  onLearningEnabledChange,
+  resultStats,
 }: ContractListProps) {
   const [contractToHide, setContractToHide] = useState<Contract | null>(null)
 
-  const inboxName = selectedInboxId === "all-contracts" ? "All Contracts" : "Kent County Council"
-  
+  // Helper to check if contract is hidden in current inbox
+  const isHiddenInInbox = (contract: Contract) => {
+    if (!selectedInboxId || selectedInboxId === "all-contracts") {
+      return contract.hiddenInInboxes && contract.hiddenInInboxes.length > 0
+    }
+    return contract.hiddenInInboxes?.includes(selectedInboxId) || false
+  }
+
+  // Filter contracts based on active filter and inbox
   const filteredContracts = contracts.filter((contract) => {
-    if (activeFilter === "unread") return contract.isUnread && !contract.isHidden
-    if (activeFilter === "saved") return contract.isSaved && !contract.isHidden
-    if (activeFilter === "hidden") return contract.isHidden
-    return !contract.isHidden // "all" shows non-hidden contracts
+    const hidden = isHiddenInInbox(contract)
+
+    if (activeFilter === "unread") return contract.isUnread && !hidden
+    if (activeFilter === "saved") return contract.isSaved && !hidden
+    if (activeFilter === "hidden") return hidden
+    return !hidden // "all" shows non-hidden contracts
   })
 
-  const newCount = contracts.filter(c => c.isNew && !c.isHidden).length
-  const unreadCount = contracts.filter(c => c.isUnread && !c.isHidden).length
-  const savedCount = contracts.filter(c => c.isSaved && !c.isHidden).length
-  const hiddenCount = contracts.filter(c => c.isHidden).length
+  // Calculate counts based on current inbox
+  const allCount = contracts.filter(c => !isHiddenInInbox(c)).length
+  const newCount = contracts.filter(c => c.isNew && !isHiddenInInbox(c)).length
+  const unreadCount = contracts.filter(c => c.isUnread && !isHiddenInInbox(c)).length
+  const savedCount = contracts.filter(c => c.isSaved && !isHiddenInInbox(c)).length
+  const hiddenCount = contracts.filter(c => isHiddenInInbox(c)).length
 
   const handleSaveClick = (e: React.MouseEvent, contractId: string) => {
     e.stopPropagation()
@@ -72,6 +136,16 @@ export function ContractList({
     onRestoreContract(contractId)
   }
 
+  // Virtual scrolling setup
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredContracts.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 180, // Approximate height per contract card
+    overscan: 5, // Render 5 extra items above and below for smooth scrolling
+  })
+
   return (
     <>
       <div className="flex-1 border-r border-border bg-background flex flex-col min-w-0">
@@ -90,19 +164,51 @@ export function ContractList({
                 </Button>
               )}
               <h1 className="text-xl font-semibold text-foreground truncate flex-1">{inboxName}</h1>
-              <div className="flex items-center -space-x-2 flex-shrink-0">
-                <Avatar className="h-6 w-6 border-2 border-background">
-                  <AvatarImage src="/placeholder.svg?height=24&width=24" />
-                  <AvatarFallback className="text-xs">JD</AvatarFallback>
-                </Avatar>
-                <Avatar className="h-6 w-6 border-2 border-background">
-                  <AvatarImage src="/placeholder.svg?height=24&width=24" />
-                  <AvatarFallback className="text-xs">SM</AvatarFallback>
-                </Avatar>
-                <Avatar className="h-6 w-6 border-2 border-background">
-                  <AvatarImage src="/placeholder.svg?height=24&width=24" />
-                  <AvatarFallback className="text-xs">+2</AvatarFallback>
-                </Avatar>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center -space-x-2">
+                  <Avatar className="h-6 w-6 border-2 border-background">
+                    <AvatarImage src="/placeholder.svg?height=24&width=24" />
+                    <AvatarFallback className="text-xs">JD</AvatarFallback>
+                  </Avatar>
+                  <Avatar className="h-6 w-6 border-2 border-background">
+                    <AvatarImage src="/placeholder.svg?height=24&width=24" />
+                    <AvatarFallback className="text-xs">SM</AvatarFallback>
+                  </Avatar>
+                  <Avatar className="h-6 w-6 border-2 border-background">
+                    <AvatarImage src="/placeholder.svg?height=24&width=24" />
+                    <AvatarFallback className="text-xs">+2</AvatarFallback>
+                  </Avatar>
+                </div>
+                <MatchingSettings
+                  globalThreshold={globalThreshold}
+                  onThresholdChange={onGlobalThresholdChange}
+                  debugMode={debugMode}
+                  onDebugModeChange={onDebugModeChange}
+                  learningEnabled={learningEnabled}
+                  onLearningEnabledChange={onLearningEnabledChange}
+                  resultStats={resultStats}
+                />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {onRerunInbox && (
+                      <DropdownMenuItem onClick={onRerunInbox}>
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Re-run Inbox
+                      </DropdownMenuItem>
+                    )}
+                    {onDeleteInbox && selectedInboxId !== "all-contracts" && (
+                      <DropdownMenuItem onClick={onDeleteInbox} className="text-destructive">
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Inbox
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             <div className="flex gap-2">
@@ -118,9 +224,9 @@ export function ContractList({
                   )}
                 >
                   {filter.charAt(0).toUpperCase() + filter.slice(1)} ({
-                    filter === "all" ? 127 : 
-                    filter === "unread" ? unreadCount : 
-                    filter === "saved" ? savedCount : 
+                    filter === "all" ? allCount :
+                    filter === "unread" ? unreadCount :
+                    filter === "saved" ? savedCount :
                     hiddenCount
                   })
                 </button>
@@ -129,18 +235,65 @@ export function ContractList({
           </div>
         </div>
 
-        {/* Contract List */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredContracts.map((contract) => (
-            <button
-              key={contract.id}
-              onClick={() => onSelectContract(contract.id)}
-              className={cn(
-                "w-full p-4 text-left border-b border-border hover:bg-accent transition-all duration-200",
-                selectedContractId === contract.id && "bg-accent",
-                contract.isSaved && "border-l-2 border-l-amber-500"
+        {/* Contract List - Virtualized or Empty State */}
+        {!isAllContractsInbox && filteredContracts.length === 0 && activeFilter === "all" ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Empty>
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <SearchX />
+                </EmptyMedia>
+                <EmptyTitle>No matching contracts</EmptyTitle>
+                <EmptyDescription>
+                  Your search didn't find any contracts above the {currentThreshold}% match threshold.
+                </EmptyDescription>
+              </EmptyHeader>
+              {onWidenSearch && currentThreshold > 30 && (
+                <EmptyContent>
+                  <Button onClick={onWidenSearch} variant="default">
+                    Widen Search
+                  </Button>
+                </EmptyContent>
               )}
-            >
+              {currentThreshold <= 30 && (
+                <EmptyContent>
+                  <p className="text-sm text-muted-foreground">
+                    Already at minimum threshold (30%)
+                  </p>
+                </EmptyContent>
+              )}
+            </Empty>
+          </div>
+        ) : (
+          <div ref={parentRef} className="flex-1 overflow-y-auto">
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+              const contract = filteredContracts[virtualItem.index]
+              return (
+              <button
+                key={contract.id}
+                data-index={virtualItem.index}
+                ref={rowVirtualizer.measureElement}
+                onClick={() => onSelectContract(contract.id)}
+                className={cn(
+                  "w-full p-4 text-left border-b border-border hover:bg-accent transition-all duration-200",
+                  selectedContractId === contract.id && "bg-accent",
+                  contract.isSaved && "border-l-2 border-l-amber-500"
+                )}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualItem.start}px)`,
+                }}
+              >
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-start gap-2 flex-1 min-w-0">
                   {contract.isNew && !contract.isHidden && (
@@ -204,7 +357,7 @@ export function ContractList({
                 <span>|</span>
                 <span>{contract.deadline}</span>
               </div>
-              {!contract.isHidden && (
+              {!contract.isHidden && contract.matchScore !== undefined && (
                 <div className="flex items-center gap-2 mb-2">
                   <Badge variant="secondary" className="text-xs px-2 py-0 bg-chart-2/20 text-chart-2 border-0">
                     {contract.matchScore}% match
@@ -219,9 +372,11 @@ export function ContractList({
               {!contract.isHidden && (
                 <p className="text-xs text-muted-foreground line-clamp-1">{contract.snippet}</p>
               )}
-            </button>
-          ))}
+              </button>
+            )})}
+          </div>
         </div>
+        )}
       </div>
 
       {/* Hide Confirmation Dialog */}
