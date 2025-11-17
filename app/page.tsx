@@ -7,6 +7,7 @@ import { ContractList } from "@/components/contract-list"
 import { ContractDetail } from "@/components/contract-detail"
 import { InboxConfiguration } from "@/components/inbox-configuration"
 import { InboxLoadingDialog } from "@/components/inbox-loading-dialog"
+import { InitialLoadingDialog } from "@/components/initial-loading-dialog"
 import { ContractListSkeleton } from "@/components/contract-list-skeleton"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -509,6 +510,13 @@ export default function ContractInboxPage() {
         inboxName={newInboxName}
         contractCount={baseContracts.length}
         onComplete={() => setIsCreatingInbox(false)}
+      />
+
+      <InitialLoadingDialog
+        open={contractsLoading && processingState !== 'idle' && processingState !== 'error'}
+        processingState={processingState}
+        progress={embeddingProgress}
+        contractCount={allContracts.length}
       />
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

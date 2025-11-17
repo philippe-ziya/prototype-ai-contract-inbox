@@ -1,9 +1,11 @@
 /**
  * Vector Store - OpenAI embeddings and semantic search
  * Handles embedding generation and cosine similarity calculations
+ *
+ * Security: Uses secure server-side API route for embeddings
+ * Performance: Loads pre-generated contract embeddings from JSON
  */
 
-import OpenAI from 'openai'
 import type { Contract, SearchResult } from '@/types'
 import {
   getAllContracts,
@@ -11,37 +13,28 @@ import {
   saveContractEmbedding,
 } from './contract-storage'
 
-// Initialize OpenAI client
-const getOpenAI = () => {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
-
-  if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
-    throw new Error(
-      'OpenAI API key not configured. Please add your API key to .env.local'
-    )
-  }
-
-  return new OpenAI({
-    apiKey,
-    dangerouslyAllowBrowser: true, // Required for client-side usage
-  })
-}
-
 /**
- * Generate embedding for a text using OpenAI
+ * Generate embedding for a text using secure API route
+ * This replaces the client-side OpenAI call to protect the API key
  */
 export async function computeEmbedding(text: string): Promise<number[]> {
   try {
-    const openai = getOpenAI()
+    console.log('[Vector Store] Computing embedding via API:', text.substring(0, 50) + '...')
 
-    console.log('[Vector Store] Computing embedding for text:', text.substring(0, 50) + '...')
-
-    const response = await openai.embeddings.create({
-      model: 'text-embedding-3-small', // Cheaper and faster than ada-002
-      input: text,
+    const response = await fetch('/api/embed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
     })
 
-    const embedding = response.data[0].embedding
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to generate embedding')
+    }
+
+    const { embedding } = await response.json()
     console.log('[Vector Store] Embedding computed, dimensions:', embedding.length)
 
     return embedding
@@ -319,7 +312,13 @@ Write a brief 1-2 sentence explanation of why this contract is relevant to the u
 /**
  * Check if API key is configured
  */
+/**
+ * Check if API is available for embedding generation
+ * Always returns true since we use server-side API route
+ * Server will handle API key validation
+ */
 export function isAPIKeyConfigured(): boolean {
-  const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY
-  return !!(apiKey && apiKey !== 'YOUR_API_KEY_HERE')
+  // API key is now server-side only, so always return true
+  // The /api/embed route will handle authentication and errors
+  return true
 }

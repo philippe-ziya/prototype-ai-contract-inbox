@@ -17,7 +17,6 @@ import {
   restoreContract,
 } from '@/lib/contract-storage'
 import { loadLocalContracts } from '@/lib/csv-loader'
-import { precomputeAllEmbeddings, isAPIKeyConfigured } from '@/lib/vector-store'
 import { recordFeedback } from '@/lib/feedback-storage'
 import { updateInboxLearning } from '@/lib/learning'
 
@@ -51,28 +50,48 @@ export function useContractStorage() {
         const loaded = await loadLocalContracts()
         console.log('[useContractStorage] Loaded', loaded.length, 'contracts from CSV')
 
-        // Save to IndexedDB
-        await saveContracts(loaded)
-        setContracts(loaded)
+        // Load pre-generated embeddings from JSON
+        console.log('[useContractStorage] Loading pre-generated embeddings')
+        setProcessingState('embedding')
 
-        // Precompute embeddings if API key is configured
-        if (isAPIKeyConfigured()) {
-          console.log('[useContractStorage] Starting embedding generation')
-          setProcessingState('embedding')
+        try {
+          const response = await fetch('/data/contract-embeddings.json')
 
-          await precomputeAllEmbeddings((current, total) => {
-            setEmbeddingProgress({ current, total })
+          if (!response.ok) {
+            throw new Error('Failed to load pre-generated embeddings')
+          }
+
+          const embeddings: Array<{ id: string; embedding: number[] }> = await response.json()
+          console.log('[useContractStorage] Loaded', embeddings.length, 'pre-generated embeddings')
+
+          // Create embedding lookup map for fast access
+          const embeddingMap = new Map(embeddings.map(e => [e.id, e.embedding]))
+
+          // Merge embeddings with contracts
+          const contractsWithEmbeddings = loaded.map((contract, index) => {
+            const embedding = embeddingMap.get(contract.id)
+            if (embedding) {
+              setEmbeddingProgress({ current: index + 1, total: loaded.length })
+            }
+            return {
+              ...contract,
+              embedding: embedding || undefined,
+            }
           })
 
-          // Reload contracts to get embeddings
-          const withEmbeddings = await getAllContracts()
-          setContracts(withEmbeddings)
+          console.log('[useContractStorage] Merged embeddings with contracts')
+
+          // Save to IndexedDB
+          await saveContracts(contractsWithEmbeddings)
+          setContracts(contractsWithEmbeddings)
 
           setProcessingState('complete')
-        } else {
-          console.warn('[useContractStorage] OpenAI API key not configured, skipping embeddings')
-          setError('OpenAI API key not configured. Add your key to .env.local')
-          setProcessingState('error')
+        } catch (embeddingError) {
+          console.warn('[useContractStorage] Failed to load pre-generated embeddings:', embeddingError)
+          // Fallback: save contracts without embeddings
+          await saveContracts(loaded)
+          setContracts(loaded)
+          setProcessingState('complete')
         }
       }
     } catch (err) {
